@@ -19,12 +19,14 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
-import android.support.design.widget.FloatingActionButton;
-import android.support.design.widget.Snackbar;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
@@ -32,9 +34,8 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import com.spotify.sdk.android.authentication.AuthenticationClient;
 import com.spotify.sdk.android.authentication.AuthenticationRequest;
@@ -53,6 +54,10 @@ import com.squareup.okhttp.Response;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.InputStream;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -79,21 +84,23 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     private ScanSettings settings;
     private List<ScanFilter> filters;
 
+    private String spotify_user;
+
+    private int last_heartbeat;
+    private boolean was_playing;
+    TextView txt_heartbeat;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        last_heartbeat = 0;
+        was_playing = false;
         setContentView(R.layout.activity_home);
+
+        txt_heartbeat = (TextView)findViewById(R.id.txt_heartbeat);
+
         Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-
-        FloatingActionButton fab = (FloatingActionButton) findViewById(R.id.fab);
-        fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAction("Action", null).show();
-            }
-        });
 
         mHandler = new Handler();
 
@@ -237,9 +244,18 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         }
     };
 
-    public void connectToDevice(BluetoothDevice device) {
+    public void connectToDevice(final BluetoothDevice device) {
         if (mGatt == null) {
             mGatt = device.connectGatt(this, false, gattCallback);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    TextView device_name = (TextView)findViewById(R.id.txt_device_name);
+                    TextView device_uuid = (TextView)findViewById(R.id.txt_device_UUID);
+                    device_name.setText("Name: " + device.getName());
+                    device_uuid.setText("Address: " + device.getAddress());
+                }
+            });
             scanLeDevice(false);// will stop after first device detection
         }
     }
@@ -248,7 +264,6 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         return UUID.fromString("0000" + shortCode16 + "-" + baseBluetoothUuidPostfix);
     }
 
-    private BluetoothGattCharacteristic characteristic;
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
@@ -269,8 +284,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic) {
-//            Log.i("MainActivity", "Characteristic changed: " + characteristic.toString());
-//            broadcastUpdate(ACTION_DATA_AVAILABLE, characteristic);
+            gatt.readCharacteristic(characteristic);
         }
 
         @Override
@@ -278,6 +292,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 //            Log.i("onServicesDiscovered", services.toString());
             BluetoothGattCharacteristic characteristic = gatt.getService(uuidFromShortCode16("180D")).getCharacteristic(uuidFromShortCode16("2A37"));
             gatt.setCharacteristicNotification(characteristic, true);
+
             BluetoothGattDescriptor descriptor = characteristic.getDescriptor(UUID.fromString(SampleGattAttributes.CLIENT_CHARACTERISTIC_CONFIG));
             descriptor.setValue(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE);
             gatt.writeDescriptor(descriptor);
@@ -285,8 +300,14 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
-//            Log.i("onCharacteristicRead", characteristic.toString());
-//            gatt.disconnect();
+            byte[] data = characteristic.getValue();
+            last_heartbeat = ((data[0] & 0xFF) << 8) + (data[1] & 0xFF);
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    txt_heartbeat.setText("Latest heartbeat: " + last_heartbeat);
+                }
+            });
         }
     };
 
@@ -312,7 +333,6 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         Log.d("MainActivity", "User logged in");
         Initialization init = new Initialization();
         init.execute();
-//        mPlayer.playUri(null, "spotify:track:2TpxZ7JUBn3uw46aR7qd6V", 0, 0);
     }
 
     @Override
@@ -338,13 +358,8 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     @Override
     public void onPlaybackEvent(PlayerEvent playerEvent) {
 //        Log.d("MainActivity", "Playback event received: " + playerEvent.name());
-        switch (playerEvent) {
-//            case PlayerEvent.kSpPlaybackNotifyTrackChanged:
-//                break;
-//            case PlayerEvent.kSpPlaybackNotifyNext:
-//                break;
-            default:
-                break;
+        if (playerEvent == PlayerEvent.kSpPlaybackNotifyBecameInactive) {
+
         }
     }
 
@@ -358,13 +373,41 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     }
 
     public void nextSong(View view) {
-        mPlayer.skipToNext(null);
+        startSong();
     }
 
-    public void submitBPM(View view) {
-        EditText bpm_box = (EditText) findViewById(R.id.edt_bpm);
-        double bpm = Double.parseDouble(bpm_box.getText().toString());
+    public void previousSong(View view) {
+        mPlayer.skipToPrevious(null);
+    }
+
+    public void playSong(View view) {
+        if (mPlayer.getPlaybackState().isPlaying) {
+            mPlayer.pause(null);
+        } else {
+            if (was_playing) {
+                mPlayer.resume(null);
+            } else {
+                startSong();
+            }
+            was_playing = true;
+        }
+    }
+
+    public void startSong() {
+        SpotifyTrack track = findSong();
+        TextView song_name = (TextView) findViewById(R.id.txt_song_name);
+        TextView song_artist = (TextView) findViewById(R.id.txt_artist_name);
+        TextView song_album = (TextView) findViewById(R.id.txt_album_name);
+        song_name.setText("Name: " + track.getTrack_name());
+        song_artist.setText("Artist: " + track.getTrack_artists().get(0).getArtist_name());
+        song_album.setText("Album: " + track.getTrack_album().getAlbum_name());
+        new DownloadImage((ImageView)findViewById(R.id.img_album_art)).execute(track.getTrack_album().getAlbum_art());
+        mPlayer.playUri(null, track.getTrack_uri(), 0,0);
+    }
+
+    public SpotifyTrack findSong() {
         int index = 0;
+        float bpm = last_heartbeat;
         double closest_bpm = Math.abs(tracks.get(0).getTrack_details().getTempo()-bpm);
         for (int i = 1; i<tracks.size(); i++) {
             double track_bpm = tracks.get(i).getTrack_details().getTempo();
@@ -374,17 +417,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
                 closest_bpm = Math.abs(tracks.get(i).getTrack_details().getTempo()-bpm);
             }
         }
-
-        TextView song_name = (TextView) findViewById(R.id.txt_song_name);
-        TextView song_bpm = (TextView) findViewById(R.id.txt_song_bpm);
-//        song_name.setText(mPlayer.getMetadata().currentTrack.name);
-        song_name.setText(tracks.get(index).getTrack_name());
-        song_bpm.setText(Double.toString(tracks.get(index).getTrack_details().getTempo()));
-        if (!mPlayer.getPlaybackState().isPlaying) {
-            mPlayer.playUri(null, tracks.get(index).getTrack_uri(), 0,0);
-        } else {
-            mPlayer.queue(null, tracks.get(index).getTrack_uri());
-        }
+        return tracks.get(index);
     }
 
     private class Initialization extends AsyncTask<String, Integer, String> {
@@ -410,7 +443,10 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
                     tracks.get(i).setTrack_details(new SpotifyTrackDetails(detail_list.getJSONObject(i)));
                 }
 
-                return null;
+                String profile_result = httpGetRequest(auth_token, "https://api.spotify.com/v1/me");
+                JSONObject profile_json = new JSONObject(profile_result);
+                spotify_user = profile_json.getString("display_name");
+                return profile_json.getJSONArray("images").getJSONObject(0).getString("url");
 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -421,8 +457,12 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         protected void onProgressUpdate(Integer... progress) { }
 
         protected void onPostExecute(String result) {
+            new DownloadImage((ImageView)findViewById(R.id.img_spotify_profile)).execute(result);
             Log.d("MainActivity","Finished initialization");
-            Toast.makeText(Home.this, "Initialization complete", Toast.LENGTH_SHORT).show();
+            TextView completed = (TextView)findViewById(R.id.txt_spotify_connected);
+            completed.setText("Status: Connected");
+            TextView user = (TextView)findViewById(R.id.txt_spotify_details);
+            user.setText("User: " + spotify_user);
         }
     }
 
@@ -435,5 +475,43 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         Response response = client.newCall(request).execute();
         return response.body().string();
+    }
+
+    public class DownloadImage extends AsyncTask<String, Integer, Drawable> {
+        ImageView imageView;
+        public DownloadImage(ImageView imageView) {
+            this.imageView = imageView;
+        }
+        @Override
+        protected Drawable doInBackground(String... arg0) {
+            return downloadImage(arg0[0]);
+        }
+        protected void onPostExecute(Drawable image) {
+            imageView.setImageDrawable(image);
+        }
+
+        private Drawable downloadImage(String _url) {
+            URL url;
+            BufferedOutputStream out;
+            InputStream in;
+            BufferedInputStream buf;
+            try {
+                url = new URL(_url);
+                in = url.openStream();
+                buf = new BufferedInputStream(in);
+                Bitmap bMap = BitmapFactory.decodeStream(buf);
+                if (in != null) {
+                    in.close();
+                }
+                if (buf != null) {
+                    buf.close();
+                }
+                return new BitmapDrawable(bMap);
+            } catch (Exception e) {
+                Log.e("Error reading file", e.toString());
+            }
+            return null;
+        }
+
     }
 }
