@@ -2,6 +2,10 @@ package net.michael_ray.heartbeat;
 
 import org.json.JSONObject;
 
+/**
+ * Created by micray01 on 3/28/2017.
+ */
+
 public class SpotifyAlbum {
 
     private String album_id;

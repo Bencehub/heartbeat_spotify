@@ -34,6 +34,7 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -64,37 +65,51 @@ import java.util.UUID;
 
 public class Home extends AppCompatActivity implements SpotifyPlayer.NotificationCallback, ConnectionStateCallback {
 
+    // Spotify ID
+    // @TODO replace the client ID with your personal Spotify client ID
     private static final String CLIENT_ID = "558a758c51fd4189993fe313f0e84eaa";
+
+    // Spotify OAuth callback URI
+    // @TODO replace with a URI for redirecting after spotify authenticates
     private static final String REDIRECT_URI = "michael-ray.net://callback";
+
+    // Standard UUID postfix for mbed bluetooth devices
     public static final String baseBluetoothUuidPostfix = "0000-1000-8000-00805F9B34FB";
 
+    // Spotify member variables
     private Player mPlayer;
     private static final int REQUEST_CODE = 1114;
     private String auth_token;
     private ArrayList<SpotifyTrack> tracks;
 
+    // Bluetooth member variables
     private BluetoothAdapter mBluetoothAdapter;
     private BluetoothGatt mGatt;
     private static final int REQUEST_ENABLE_BT = 1;
-
     private static final long SCAN_PERIOD = 10000;
     private Handler mHandler;
-
     private BluetoothLeScanner mLEScanner;
     private ScanSettings settings;
     private List<ScanFilter> filters;
 
+    // Specific spotify member variables
     private String spotify_user;
-
     private int last_heartbeat;
     private boolean was_playing;
     TextView txt_heartbeat;
 
+    // Array list for stored devices
+    private ArrayAdapter<String> device_adapter;
+    private ArrayList<BluetoothDevice> devices;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // Initialization
         last_heartbeat = 0;
         was_playing = false;
+        devices = new ArrayList<>();
         setContentView(R.layout.activity_home);
 
         txt_heartbeat = (TextView)findViewById(R.id.txt_heartbeat);
@@ -104,14 +119,16 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         mHandler = new Handler();
 
+        // Authenticate with spotify
         AuthenticationRequest.Builder builder = new AuthenticationRequest.Builder(CLIENT_ID,
                 AuthenticationResponse.Type.TOKEN,
                 REDIRECT_URI);
         builder.setScopes(new String[]{"user-read-private", "streaming", "user-read-private", "user-read-email", "user-library-modify", "user-library-read"});
         AuthenticationRequest request = builder.build();
-
+        // Open a login page to log in with spotify
         AuthenticationClient.openLoginActivity(this, REQUEST_CODE, request);
 
+        // Setup basic bluetooth code
         final BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
         mBluetoothAdapter = bluetoothManager.getAdapter();
     }
@@ -119,14 +136,20 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     @Override
     protected void onResume() {
         super.onResume();
+
+        // Check to see if bluetooth is enabled for your phone
         if (mBluetoothAdapter == null || !mBluetoothAdapter.isEnabled()) {
             Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
             startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
         } else {
+
+            // Request permission for bluetooth
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 if (this.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                     requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION}, 1);
                 } else {
+
+                    // Start scanning for bluetooth devices
                     mLEScanner = mBluetoothAdapter.getBluetoothLeScanner();
                     settings = new ScanSettings.Builder()
                             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -134,13 +157,14 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
                     filters = new ArrayList<ScanFilter>();
                 }
             }
-            scanLeDevice(true);
         }
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+
+        // Cancel scanning for BLE devices
         if (mBluetoothAdapter != null && mBluetoothAdapter.isEnabled()) {
             scanLeDevice(false);
         }
@@ -148,7 +172,10 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
     @Override
     protected void onDestroy() {
+        // Close the spotify web player
         Spotify.destroyPlayer(this);
+
+        // Cancel the BLE GATT server
         if (mGatt != null) {
             mGatt.close();
         }
@@ -160,6 +187,8 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
         switch (requestCode) {
             case 1: {
+
+                // Handles permissions being accepted
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     Log.d("MainActivity", "coarse location permission granted");
                 } else {
@@ -180,6 +209,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        // Check to see if bluetooth is enabled
         if (requestCode == REQUEST_ENABLE_BT) {
             if (resultCode == Activity.RESULT_CANCELED) {
                 finish();
@@ -187,14 +217,19 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
             }
         }
 
+        // Check to see if spotify returned a valid auth token
         if (requestCode == REQUEST_CODE) {
             AuthenticationResponse response = AuthenticationClient.getResponse(resultCode, data);
             if (response.getType() == AuthenticationResponse.Type.TOKEN) {
+
+                // Configure spotify user credentials
                 Config playerConfig = new Config(this, response.getAccessToken(), CLIENT_ID);
                 auth_token = response.getAccessToken();
                 Spotify.getPlayer(playerConfig, this, new SpotifyPlayer.InitializationObserver() {
                     @Override
                     public void onInitialized(SpotifyPlayer spotifyPlayer) {
+
+                        // Start the spotify player and add corresponding callbacks
                         mPlayer = spotifyPlayer;
                         mPlayer.addConnectionStateCallback(Home.this);
                         mPlayer.addNotificationCallback(Home.this);
@@ -211,6 +246,10 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         super.onActivityResult(requestCode, resultCode, data);
     }
 
+    /**
+     * Scan for BLE devices
+     * @param enable enabled scanning
+     */
     private void scanLeDevice(final boolean enable) {
         if (enable) {
             mHandler.postDelayed(new Runnable() {
@@ -225,13 +264,20 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         }
     }
 
+    /**
+     * Callback for BLE scan results
+     */
     private ScanCallback mScanCallback = new ScanCallback() {
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
             BluetoothDevice btDevice = result.getDevice();
-            if (result.getDevice().getName()!=null && result.getDevice().getName().contains("HRM1")) {
-                Log.i("MainActivity", "BLE Result: " + result.toString());
-                connectToDevice(btDevice);
+            // Add the device to the available BLE list if the device has a name
+            if (result.getDevice().getName()!=null) {
+                if (devices.indexOf(result.getDevice()) == -1) {
+                    device_adapter.add(result.getDevice().getName());
+                    devices.add(btDevice);
+                    device_adapter.notifyDataSetChanged();
+                }
             }
         }
 
@@ -244,8 +290,14 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         }
     };
 
+    /**
+     * Connect to a specified BLE device
+     * @param device Bluetooth device
+     */
     public void connectToDevice(final BluetoothDevice device) {
         if (mGatt == null) {
+
+            // Connect to the GATT server and display the connection results
             mGatt = device.connectGatt(this, false, gattCallback);
             runOnUiThread(new Runnable() {
                 @Override
@@ -260,14 +312,24 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         }
     }
 
+    /**
+     * Convert a UUID short code to a full UUID
+     * @param shortCode16 UUID short code
+     * @return UUID
+     */
     private static UUID uuidFromShortCode16(String shortCode16) {
         return UUID.fromString("0000" + shortCode16 + "-" + baseBluetoothUuidPostfix);
     }
 
+    /**
+     * Callback for a GATT server connection once connected to a device
+     */
     private final BluetoothGattCallback gattCallback = new BluetoothGattCallback() {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             Log.i("onConnectionStateChange", "Status: " + status);
+
+            // Display states
             switch (newState) {
                 case BluetoothProfile.STATE_CONNECTED:
                     Log.i("gattCallback", "STATE_CONNECTED");
@@ -289,7 +351,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         @Override
         public void onServicesDiscovered(BluetoothGatt gatt, int status) {
-//            Log.i("onServicesDiscovered", services.toString());
+            // Retrieve specified serviecs from the BLE device that correspond to the heart rate results
             BluetoothGattCharacteristic characteristic = gatt.getService(uuidFromShortCode16("180D")).getCharacteristic(uuidFromShortCode16("2A37"));
             gatt.setCharacteristicNotification(characteristic, true);
 
@@ -300,11 +362,14 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         @Override
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            // Read the heart rate from a given BLE GATT characteristic
             byte[] data = characteristic.getValue();
+            // Take 2 bytes of data and convert it to a string result
             last_heartbeat = ((data[0] & 0xFF) << 8) + (data[1] & 0xFF);
             runOnUiThread(new Runnable() {
                 @Override
                 public void run() {
+                    // Update the heart beat on the GUI
                     txt_heartbeat.setText("Latest heartbeat: " + last_heartbeat);
                 }
             });
@@ -330,6 +395,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
     @Override
     public void onLoggedIn() {
+        // Log in callback for spotify
         Log.d("MainActivity", "User logged in");
         Initialization init = new Initialization();
         init.execute();
@@ -356,30 +422,31 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     }
 
     @Override
-    public void onPlaybackEvent(PlayerEvent playerEvent) {
-//        Log.d("MainActivity", "Playback event received: " + playerEvent.name());
-        if (playerEvent == PlayerEvent.kSpPlaybackNotifyBecameInactive) {
-
-        }
-    }
+    public void onPlaybackEvent(PlayerEvent playerEvent) {}
 
     @Override
-    public void onPlaybackError(Error error) {
-        Log.d("MainActivity", "Playback error received: " + error.name());
-        switch (error) {
-            default:
-                break;
-        }
-    }
+    public void onPlaybackError(Error error) { }
 
+    /**
+     * Skip to the next song
+     * @param view Layout view from the calling activity
+     */
     public void nextSong(View view) {
         startSong();
     }
 
+    /**
+     * Skip to the previous song
+     * @param view Layout view from the calling activity
+     */
     public void previousSong(View view) {
         mPlayer.skipToPrevious(null);
     }
 
+    /**
+     * Play/pause a song corresponding to the current heart beat
+     * @param view Layout view from the calling activity
+     */
     public void playSong(View view) {
         if (mPlayer.getPlaybackState().isPlaying) {
             mPlayer.pause(null);
@@ -393,19 +460,35 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         }
     }
 
+    /**
+     * Start the song corresponding to the current heart beat
+     */
     public void startSong() {
+        // Find the current song to play
         SpotifyTrack track = findSong();
+
+        // Update all of the UI text boxes
         TextView song_name = (TextView) findViewById(R.id.txt_song_name);
         TextView song_artist = (TextView) findViewById(R.id.txt_artist_name);
         TextView song_album = (TextView) findViewById(R.id.txt_album_name);
         song_name.setText("Name: " + track.getTrack_name());
         song_artist.setText("Artist: " + track.getTrack_artists().get(0).getArtist_name());
         song_album.setText("Album: " + track.getTrack_album().getAlbum_name());
+
+        // Get the Spotify album art
         new DownloadImage((ImageView)findViewById(R.id.img_album_art)).execute(track.getTrack_album().getAlbum_art());
+
+        // Play the song over the speakers
         mPlayer.playUri(null, track.getTrack_uri(), 0,0);
     }
 
+    /**
+     * Find the song corresponding to the current heart beat from a user's spotify account
+     * @return
+     */
     public SpotifyTrack findSong() {
+
+        // Search algorithm to find the BPM that matches to the heart rate
         int index = 0;
         float bpm = last_heartbeat;
         double closest_bpm = Math.abs(tracks.get(0).getTrack_details().getTempo()-bpm);
@@ -420,12 +503,48 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         return tracks.get(index);
     }
 
+    /**
+     * Open a dialog box for connecting to BLE devices
+     * @param view Layout view from the calling activity
+     */
+    public void connectDevice(View view) {
+        // Enabled scanning
+        scanLeDevice(true);
+        AlertDialog.Builder builderSingle = new AlertDialog.Builder(Home.this);
+        builderSingle.setTitle("Available Devices");
+
+        device_adapter = new ArrayAdapter<String>(Home.this, android.R.layout.simple_list_item_1);
+
+        builderSingle.setNegativeButton("cancel", new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                dialog.dismiss();
+            }
+        });
+
+        // Specific device was selected to connec to
+        builderSingle.setAdapter(device_adapter, new DialogInterface.OnClickListener() {
+            @Override
+            public void onClick(DialogInterface dialog, int which) {
+                Log.i("MainActivity", "BLE Result: " + devices.get(which).toString());
+                connectToDevice(devices.get(which));
+                dialog.dismiss();
+            }
+        });
+        builderSingle.show();
+    }
+
+    /**
+     * AsyncTask responsible for retrieving spotify songs and playlists
+     */
     private class Initialization extends AsyncTask<String, Integer, String> {
         protected String doInBackground(String... urls) {
             try {
+                // Get user tracks from spotify
                 String track_results = httpGetRequest(auth_token, "https://api.spotify.com/v1/me/tracks?limit=50");
                 tracks = new ArrayList<>();
 
+                // Get track information
                 JSONObject result_json = new JSONObject(track_results);
                 JSONArray song_list = result_json.getJSONArray("items");
                 String track_ids = "";
@@ -435,6 +554,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
                     track_ids += track.getTrack_id() + ",";
                 }
 
+                // Get audio features from each track
                 track_ids = track_ids.substring(0,track_ids.length()-1);
                 String detailed_results = httpGetRequest(auth_token, "https://api.spotify.com/v1/audio-features?ids=" + track_ids);
                 result_json = new JSONObject(detailed_results);
@@ -443,6 +563,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
                     tracks.get(i).setTrack_details(new SpotifyTrackDetails(detail_list.getJSONObject(i)));
                 }
 
+                // Get personal spotify information for display purposes
                 String profile_result = httpGetRequest(auth_token, "https://api.spotify.com/v1/me");
                 JSONObject profile_json = new JSONObject(profile_result);
                 spotify_user = profile_json.getString("display_name");
@@ -456,6 +577,7 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
 
         protected void onProgressUpdate(Integer... progress) { }
 
+        // Update the UI with the found information
         protected void onPostExecute(String result) {
             new DownloadImage((ImageView)findViewById(R.id.img_spotify_profile)).execute(result);
             Log.d("MainActivity","Finished initialization");
@@ -467,6 +589,13 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
     }
 
 
+    /**
+     * HTTP GET request
+     * @param auth_token Spotify authentication token
+     * @param endpoint Endpoint to do the HTTP GET
+     * @return Resulting text
+     * @throws Exception Error with the HTTP GET
+     */
     private String httpGetRequest(String auth_token, String endpoint) throws Exception{
         OkHttpClient client = new OkHttpClient();
 
@@ -477,6 +606,9 @@ public class Home extends AppCompatActivity implements SpotifyPlayer.Notificatio
         return response.body().string();
     }
 
+    /**
+     * AsyncTask that downloads the Album art and spotify user profile picture
+     */
     public class DownloadImage extends AsyncTask<String, Integer, Drawable> {
         ImageView imageView;
         public DownloadImage(ImageView imageView) {
