@@ -108,17 +108,18 @@
 
     </LinearLayout>
 
-    <TextView
+    <Button
         android:layout_marginTop="10dp"
-        android:id="@+id/txt_device"
+        android:id="@+id/btn_find_devices"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Devices"
+        android:text="Connect Device"
         android:padding="5dp"
         android:background="#99e6ff"
         android:textAlignment="center"
         android:textSize="18sp"
-        android:textStyle="bold" />
+        android:textStyle="bold"
+        android:onClick="connectDevice"/>
 
     <TextView
         android:id="@+id/txt_device_name"
