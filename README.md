@@ -39,7 +39,32 @@ Looking into `main.cpp`, you can see how the BLE library is used to connect to t
 
 In Android studio, open up the HeartBEAT folder and clean the project. There are a few setup steps you must follow before you can download the app onto your phone.
 
-First, you must have a developer account with spotify, which requires you to have aSpotify premium account. If you have a premium account, go to the [developer panel](https://developer.spotify.com/my-applications/#!/) and register. 
+First, you must have a developer account with spotify, which requires you to have a Spotify premium account. If you have a premium account, go to the [developer panel](https://developer.spotify.com/my-applications/#!/) and register. 
 
+Once logged in, create a new application by clicking on the `Create an App` button. Fill out the corresponding details, including adding your Android developer SHA, which you can find by running the following command in Android Studio Console: 
+`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android`
+
+After you have created an app in the Spotify developer portal, you can find your client ID and secret key by selecting on your app and looking for the `Client ID` and `Client Secret Key` fields. Copy the client ID as you will need it later.
+
+Open `Home.java` in Android studio. Change the `Client ID` to your client ID you found in the step above. The line of code should look like this:
+```java
+// Spotify ID
+// @TODO replace the client ID with your personal Spotify client ID
+private static final String CLIENT_ID = "123456789012345678901234567890";
+```
+
+Compile your code, and deploy to your device.
 
 ## Running
+
+Reset the client and attach the Grove heart rate sensor to your ear. After a few seconds, your heart rate will start sending over BLE.
+
+Open the Android application on your phone and click the `Connect` button in the middle of the screen. This should bring up a dialog box as shown below. Click the HeartBEAT list item to connect.
+
+<img src="https://github.com/mray19027/HeartBEAT/blob/master/imgs/connect.png" width="300">
+
+After a few seconds, the Android app will connect to the device and heart rate information should display on the screen as shown below.
+
+<img src="https://github.com/mray19027/HeartBEAT/blob/master/imgs/home.png" width="300">
+
+Clicking play will start the song corresponding to your heart rate. Any time the song ends or you click `Next`, your current heart rate will be used to select the next song.
