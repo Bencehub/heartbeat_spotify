@@ -6,6 +6,8 @@ This could be useful while exercising, at work, driving in your car, or plenty o
 Your heart rate is measured with sensors attached to an mbed device, and then sent over BLE to an Android application. 
 The Android aplication compares your heart rate to your Spotify music and plays the corresponding songs.
 
+[![HEARTBEAT](https://img.youtube.com/vi/l6507fZMsXg/0.jpg)](https://www.youtube.com/watch?v=l6507fZMsXg)
+
 ## Requirements
 
 In order to run HeartBEAT, you need the following:
